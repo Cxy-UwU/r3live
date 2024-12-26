@@ -961,7 +961,7 @@ void R3LIVE::service_pub_rgb_maps()
 {
     int last_publish_map_idx = -3e8;
     int sleep_time_aft_pub = 10;
-    int number_of_pts_per_topic = 100;
+    int number_of_pts_per_topic = 200;
     if ( number_of_pts_per_topic < 0 )
     {
         // ROS_ERROR("Invalid number_of_pts_per_topic: %d", number_of_pts_per_topic);
@@ -993,6 +993,11 @@ void R3LIVE::service_pub_rgb_maps()
             if ( m_map_rgb_pts.m_rgb_pts_vec[ i ]->m_N_rgb < 1 )
             {
                 // ROS_WARN("m_N_rgb < 1");
+                continue;
+            }
+            if ( m_map_rgb_pts.m_rgb_pts_vec[ i ]->m_pos[ 2 ] > 0.8 )
+            {
+                // ROS_WARN("Point z value > 0.6, skipping point");
                 continue;
             }
             pc_rgb.points[ pub_idx_size ].x = m_map_rgb_pts.m_rgb_pts_vec[ i ]->m_pos[ 0 ];
