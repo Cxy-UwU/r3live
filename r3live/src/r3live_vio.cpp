@@ -255,7 +255,7 @@ void R3LIVE::publish_raw_img( cv::Mat &img )
     pub_raw_img.publish( out_msg );
 }
 
-int        sub_image_typed = 0; // 0: TBD 1: sub_raw, 2: sub_comp
+int        sub_image_typed = 2; // 0: TBD 1: sub_raw, 2: sub_comp
 std::mutex mutex_image_callback;
 
 std::deque< sensor_msgs::CompressedImageConstPtr > g_received_compressed_img_msg;
@@ -282,6 +282,7 @@ void R3LIVE::service_process_img_buffer()
         {
             while ( g_received_compressed_img_msg.size() == 0 )
             {
+                // ROS_INFO("Waiting for image... Current size: %zu", g_received_compressed_img_msg.size());
                 ros::spinOnce();
                 std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
                 std::this_thread::yield();
@@ -960,9 +961,10 @@ void R3LIVE::service_pub_rgb_maps()
 {
     int last_publish_map_idx = -3e8;
     int sleep_time_aft_pub = 10;
-    int number_of_pts_per_topic = 1000;
+    int number_of_pts_per_topic = 100;
     if ( number_of_pts_per_topic < 0 )
     {
+        // ROS_ERROR("Invalid number_of_pts_per_topic: %d", number_of_pts_per_topic);
         return;
     }
     while ( 1 )
@@ -970,14 +972,19 @@ void R3LIVE::service_pub_rgb_maps()
         ros::spinOnce();
         std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
         pcl::PointCloud< pcl::PointXYZRGB > pc_rgb;
-        sensor_msgs::PointCloud2            ros_pc_msg;
+        sensor_msgs::PointCloud2 ros_pc_msg;
         int pts_size = m_map_rgb_pts.m_rgb_pts_vec.size();
+        if (pts_size == 0)
+        {
+            // ROS_WARN("No points in m_map_rgb_pts.m_rgb_pts_vec");
+            continue;
+        }
         pc_rgb.resize( number_of_pts_per_topic );
-        // for (int i = pts_size - 1; i > 0; i--)
         int pub_idx_size = 0;
         int cur_topic_idx = 0;
         if ( last_publish_map_idx == m_map_rgb_pts.m_last_updated_frame_idx )
         {
+            // ROS_INFO("No new updates in m_map_rgb_pts");
             continue;
         }
         last_publish_map_idx = m_map_rgb_pts.m_last_updated_frame_idx;
@@ -985,6 +992,7 @@ void R3LIVE::service_pub_rgb_maps()
         {
             if ( m_map_rgb_pts.m_rgb_pts_vec[ i ]->m_N_rgb < 1 )
             {
+                // ROS_WARN("m_N_rgb < 1");
                 continue;
             }
             pc_rgb.points[ pub_idx_size ].x = m_map_rgb_pts.m_rgb_pts_vec[ i ]->m_pos[ 0 ];
@@ -993,7 +1001,6 @@ void R3LIVE::service_pub_rgb_maps()
             pc_rgb.points[ pub_idx_size ].r = m_map_rgb_pts.m_rgb_pts_vec[ i ]->m_rgb[ 2 ];
             pc_rgb.points[ pub_idx_size ].g = m_map_rgb_pts.m_rgb_pts_vec[ i ]->m_rgb[ 1 ];
             pc_rgb.points[ pub_idx_size ].b = m_map_rgb_pts.m_rgb_pts_vec[ i ]->m_rgb[ 0 ];
-            // pc_rgb.points[i].intensity = m_map_rgb_pts.m_rgb_pts_vec[i]->m_obs_dis;
             pub_idx_size++;
             if ( pub_idx_size == number_of_pts_per_topic )
             {
@@ -1007,6 +1014,7 @@ void R3LIVE::service_pub_rgb_maps()
                         std::make_shared< ros::Publisher >( m_ros_node_handle.advertise< sensor_msgs::PointCloud2 >(
                             std::string( "/RGB_map_" ).append( std::to_string( cur_topic_idx ) ), 100 ) );
                 }
+                // ROS_INFO( "Publishing RGB map %d at time %f", cur_topic_idx, ros::Time::now().toSec() );
                 m_pub_rgb_render_pointcloud_ptr_vec[ cur_topic_idx ]->publish( ros_pc_msg );
                 std::this_thread::sleep_for( std::chrono::microseconds( sleep_time_aft_pub ) );
                 ros::spinOnce();
@@ -1014,20 +1022,25 @@ void R3LIVE::service_pub_rgb_maps()
             }
         }
 
-        pc_rgb.resize( pub_idx_size );
-        pcl::toROSMsg( pc_rgb, ros_pc_msg );
-        ros_pc_msg.header.frame_id = "world";       
-        ros_pc_msg.header.stamp = ros::Time::now(); 
-        if ( m_pub_rgb_render_pointcloud_ptr_vec[ cur_topic_idx ] == nullptr )
+        if (pub_idx_size > 0)
         {
-            m_pub_rgb_render_pointcloud_ptr_vec[ cur_topic_idx ] =
-                std::make_shared< ros::Publisher >( m_ros_node_handle.advertise< sensor_msgs::PointCloud2 >(
-                    std::string( "/RGB_map_" ).append( std::to_string( cur_topic_idx ) ), 100 ) );
+            pc_rgb.resize( pub_idx_size );
+            pcl::toROSMsg( pc_rgb, ros_pc_msg );
+            ros_pc_msg.header.frame_id = "world";       
+            ros_pc_msg.header.stamp = ros::Time::now(); 
+            if ( m_pub_rgb_render_pointcloud_ptr_vec[ cur_topic_idx ] == nullptr )
+            {
+                m_pub_rgb_render_pointcloud_ptr_vec[ cur_topic_idx ] =
+                    std::make_shared< ros::Publisher >( m_ros_node_handle.advertise< sensor_msgs::PointCloud2 >(
+                        std::string( "/RGB_map_" ).append( std::to_string( cur_topic_idx ) ), 100 ) );
+            }
+            // ROS_INFO( "Publishing remaining RGB map %d at time %f", cur_topic_idx, ros::Time::now().toSec() );
+            m_pub_rgb_render_pointcloud_ptr_vec[ cur_topic_idx ]->publish( ros_pc_msg );
+            std::this_thread::sleep_for( std::chrono::microseconds( sleep_time_aft_pub ) );
+            ros::spinOnce();
+            cur_topic_idx++;
         }
-        std::this_thread::sleep_for( std::chrono::microseconds( sleep_time_aft_pub ) );
-        ros::spinOnce();
-        m_pub_rgb_render_pointcloud_ptr_vec[ cur_topic_idx ]->publish( ros_pc_msg );
-        cur_topic_idx++;
+
         if ( cur_topic_idx >= 45 ) // Maximum pointcloud topics = 45.
         {
             number_of_pts_per_topic *= 1.5;
@@ -1038,6 +1051,7 @@ void R3LIVE::service_pub_rgb_maps()
 
 void R3LIVE::publish_render_pts( ros::Publisher &pts_pub, Global_map &m_map_rgb_pts )
 {
+    // ROS_INFO( "Publish render pts" );
     pcl::PointCloud< pcl::PointXYZRGB > pc_rgb;
     sensor_msgs::PointCloud2            ros_pc_msg;
     pc_rgb.reserve( 1e7 );
@@ -1241,7 +1255,7 @@ void R3LIVE::service_VIO_update()
         tim.tic( "Pub" );
         double display_cost_time = std::accumulate( frame_cost_time_vec.begin(), frame_cost_time_vec.end(), 0.0 ) / frame_cost_time_vec.size();
         g_vio_frame_cost_time = display_cost_time;
-        // publish_render_pts( m_pub_render_rgb_pts, m_map_rgb_pts );
+        publish_render_pts( m_pub_render_rgb_pts, m_map_rgb_pts );
         publish_camera_odom( img_pose, message_time );
         // publish_track_img( op_track.m_debug_track_img, display_cost_time );
         publish_track_img( img_pose->m_raw_img, display_cost_time );

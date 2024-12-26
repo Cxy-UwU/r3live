@@ -46,6 +46,7 @@ Dr. Fu Zhang < fuzhang@hku.hk >.
  POSSIBILITY OF SUCH DAMAGE.
 */
 #include "image_frame.hpp"
+#include "ros/ros.h"
 
 Image_frame::Image_frame()
 {
@@ -149,6 +150,7 @@ bool Image_frame::project_3d_to_2d(const pcl::PointXYZI & in_pt, Eigen::Matrix3d
     vec_3 pt_w(in_pt.x, in_pt.y, in_pt.z), pt_cam;
     // pt_cam = (m_pose_w2c_q.inverse() * pt_w - m_pose_w2c_q.inverse()*m_pose_w2c_t);
     pt_cam = (m_pose_c2w_q * pt_w + m_pose_c2w_t);
+    // ROS_INFO("pt_cam: %f, %f, %f", pt_cam(0), pt_cam(1), pt_cam(2));
     if (pt_cam(2) < 0.001)
     {
         return false;

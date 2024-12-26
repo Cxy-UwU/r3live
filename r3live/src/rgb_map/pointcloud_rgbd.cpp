@@ -45,6 +45,7 @@ Dr. Fu Zhang < fuzhang@hku.hk >.
  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  POSSIBILITY OF SUCH DAMAGE.
 */
+#include <ros/ros.h>
 #include "pointcloud_rgbd.hpp"
 #include "../optical_flow/lkpyramid.hpp"
 extern Common_tools::Cost_time_logger g_cost_time_logger;
@@ -109,24 +110,31 @@ const double process_noise_sigma = 0.1;
 
 int RGB_pts::update_rgb(const vec_3 &rgb, const double obs_dis, const vec_3 obs_sigma, const double obs_time)
 {
+    // ROS_INFO("update_rgb called with obs_dis: %f, obs_time: %f", obs_dis, obs_time);
+    // ROS_INFO("Current m_N_rgb: %d", m_N_rgb);
+
     if (m_obs_dis != 0 && (obs_dis > m_obs_dis * 1.2))
     {
+        // ROS_WARN("Observation distance too large: %f", obs_dis);
         return 0;
     }
 
     if( m_N_rgb == 0)
     {
         // For first time of observation.
+        // ROS_INFO("First observation");
         m_last_obs_time = obs_time;
         m_obs_dis = obs_dis;
         for (int i = 0; i < 3; i++)
         {
             m_rgb[i] = rgb[i];
-            m_cov_rgb[i] = obs_sigma(i) ;
+            m_cov_rgb[i] = obs_sigma(i);
         }
         m_N_rgb = 1;
+        // ROS_INFO("Updated m_N_rgb to 1");
         return 0;
     }
+
     // State estimation for robotics, section 2.2.6, page 37-38
     for(int i = 0 ; i < 3; i++)
     {
@@ -142,6 +150,7 @@ int RGB_pts::update_rgb(const vec_3 &rgb, const double obs_dis, const vec_3 obs_
     }
     m_last_obs_time = obs_time;
     m_N_rgb++;
+    // ROS_INFO("Incremented m_N_rgb to %d", m_N_rgb);
     return 1;
 }
 
@@ -242,6 +251,7 @@ void Global_map::render_points_for_projection(std::shared_ptr<Image_frame> &img_
     m_mutex_pts_vec->lock();
     if (m_pts_rgb_vec_for_projection != nullptr)
     {
+        // ROS_INFO("Rendering points for projection");
         render_pts_in_voxels(img_ptr, *m_pts_rgb_vec_for_projection);
         // render_pts_in_voxels(img_ptr, m_rgb_pts_vec);
     }
@@ -366,6 +376,7 @@ int Global_map::append_points_to_global_map(pcl::PointCloud<T> &pc_in, double  a
 
 void Global_map::render_pts_in_voxels(std::shared_ptr<Image_frame> &img_ptr, std::vector<std::shared_ptr<RGB_pts>> &pts_for_render, double obs_time)
 {
+    // ROS_INFO("Rendering points in voxels");
     Common_tools::Timer tim;
     tim.tic();
     double u, v;
@@ -374,11 +385,12 @@ void Global_map::render_pts_in_voxels(std::shared_ptr<Image_frame> &img_ptr, std
     m_last_updated_frame_idx = img_ptr->m_frame_idx;
     for (int i = 0; i < pt_size; i++)
     {
-
+        // ROS_INFO("Rendering point %d", i);
         vec_3 pt_w = pts_for_render[i]->get_pos();
         bool res = img_ptr->project_3d_point_in_this_img(pt_w, u, v, nullptr, 1.0);
         if (res == false)
         {
+            // ROS_INFO("Point %d not in image", i);
             continue;
         }
         vec_3 pt_cam = (pt_w - img_ptr->m_pose_w2c_t);
@@ -388,6 +400,7 @@ void Global_map::render_pts_in_voxels(std::shared_ptr<Image_frame> &img_ptr, std
         double gray = img_ptr->get_grey_color(u, v, 0);
         vec_3 rgb_color = img_ptr->get_rgb(u, v, 0);
         pts_for_render[i]->update_gray(gray, pt_cam.norm());
+        // ROS_INFO("Updating RGB for point %d", i);
         pts_for_render[i]->update_rgb(rgb_color, pt_cam.norm(), vec_3(image_obs_cov, image_obs_cov, image_obs_cov), obs_time);
         img_ptr->m_gama_para = gama_bak;
         // m_rgb_pts_vec[i]->update_rgb( vec_3(gray, gray, gray) );
@@ -402,6 +415,7 @@ std::atomic<long> render_pts_count ;
 static inline double thread_render_pts_in_voxel(const int & pt_start, const int & pt_end, const std::shared_ptr<Image_frame> & img_ptr,
                                                 const std::vector<RGB_voxel_ptr> * voxels_for_render, const double obs_time)
 {
+    // ROS_INFO("Thread render_pts_in_voxel called with pt_start: %d, pt_end: %d", pt_start, pt_end);
     vec_3 pt_w;
     vec_3 rgb_color;
     double u, v;
@@ -417,12 +431,14 @@ static inline double thread_render_pts_in_voxel(const int & pt_start, const int 
             pt_w = voxel_ptr->m_pts_in_grid[pt_idx]->get_pos();
             if ( img_ptr->project_3d_point_in_this_img( pt_w, u, v, nullptr, 1.0 ) == false )
             {
+                // ROS_INFO("Point %d not in image", pt_idx);
                 continue;
             }
             pt_cam_norm = ( pt_w - img_ptr->m_pose_w2c_t ).norm();
             // double gray = img_ptr->get_grey_color(u, v, 0);
             // pts_for_render[i]->update_gray(gray, pt_cam_norm);
             rgb_color = img_ptr->get_rgb( u, v, 0 );
+            // ROS_INFO("Updating RGB for point %d", pt_idx);
             if (  voxel_ptr->m_pts_in_grid[pt_idx]->update_rgb(
                      rgb_color, pt_cam_norm, vec_3( image_obs_cov, image_obs_cov, image_obs_cov ), obs_time ) )
             {
